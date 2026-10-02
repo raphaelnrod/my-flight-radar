@@ -1,0 +1,22 @@
+services:
+  flight-radar:
+    build: .
+    image: flight-radar:latest
+    container_name: flight-radar
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_PATH: /data/flight-radar.db
+      ROUTES_FILE: /app/config/routes.json
+    volumes:
+      - flight-radar-data:/data
+      # Edite as rotas sem rebuild da imagem (reinicie o container após alterar).
+      - ./config/routes.json:/app/config/routes.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  flight-radar-data:

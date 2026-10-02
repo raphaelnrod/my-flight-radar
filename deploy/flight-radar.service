@@ -1,0 +1,39 @@
+# Instalação:
+#   npm ci && npm run build && npm prune --omit=dev   # (build local)
+#   sudo useradd --system --home /opt/flight-radar --shell /usr/sbin/nologin flightradar
+#   sudo mkdir -p /opt/flight-radar/data && sudo cp -r dist node_modules package.json config /opt/flight-radar/
+#   sudo cp .env /opt/flight-radar/.env && sudo chmod 600 /opt/flight-radar/.env
+#   sudo chown -R flightradar: /opt/flight-radar
+#   sudo cp deploy/flight-radar.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now flight-radar
+#   journalctl -u flight-radar -f
+[Unit]
+Description=Flight Radar - monitor de passagens com alertas no Telegram
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flightradar
+Group=flightradar
+WorkingDirectory=/opt/flight-radar
+EnvironmentFile=/opt/flight-radar/.env
+Environment=NODE_ENV=production
+Environment=DB_PATH=/opt/flight-radar/data/flight-radar.db
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=15
+TimeoutStopSec=20
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/flight-radar/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

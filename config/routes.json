@@ -1,0 +1,23 @@
+[
+  {
+    "id": "gru-bcn-latam",
+    "fromAirport": "GRU",
+    "toAirport": "BCN",
+    "targetAirlines": ["LA"],
+    "departureDateRange": { "from": "2026-10-15", "to": "2026-10-17" },
+    "returnDateRange": { "from": "2026-10-28", "to": "2026-10-30" },
+    "minStayDays": 10,
+    "maxStayDays": 16,
+    "maxPrice": 3500,
+    "active": true
+  },
+  {
+    "id": "sao-mad-iberia-uxair",
+    "fromAirport": "SAO",
+    "toAirport": "MAD",
+    "targetAirlines": ["IB", "UX"],
+    "departureDateRange": ["2026-11-10", "2026-11-17"],
+    "maxPrice": 3000,
+    "active": false
+  }
+]
