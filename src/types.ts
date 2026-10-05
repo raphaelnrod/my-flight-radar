@@ -35,6 +35,8 @@ export interface Segment {
   arrival: string;
   /** Código IATA da companhia. */
   airline: string;
+  /** Nome da companhia informado pelo provedor, quando disponível. */
+  airlineName?: string;
   flightNumber?: string;
   durationMinutes: number;
 }

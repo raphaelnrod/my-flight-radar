@@ -10,6 +10,7 @@ const flightSchema = z.object({
   arrival_airport: airport,
   duration: z.number().optional(),
   flight_number: z.string().optional(),
+  airline: z.string().optional(),
 });
 const optionSchema = z.object({
   flights: z.array(flightSchema).min(1),
@@ -73,6 +74,7 @@ export class SerpApiProvider implements FlightProvider {
           departure: toIsoLocal(f.departure_airport.time),
           arrival: toIsoLocal(f.arrival_airport.time),
           airline: code ?? '??',
+          ...(f.airline && { airlineName: f.airline }),
           ...(code && number && { flightNumber: `${code}${number}` }),
           durationMinutes: f.duration ?? 0,
         };

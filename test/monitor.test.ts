@@ -118,15 +118,42 @@ describe('FallbackProvider', () => {
 });
 
 describe('formatAlert', () => {
-  it('gera a mensagem no formato esperado', () => {
-    const text = formatAlert({
-      routeId: 'r1', from: 'GRU', to: 'BCN', departureDate: '2026-10-15', returnDate: '2026-10-28',
-      offer: offer(3450), maxPrice: 3500, reasons: ['below-max-price'], dropPercent: null, averagePrice: null,
-    });
-    expect(text).toContain('✈️ <b>Alerta de Passagem LATAM: [GRU] -&gt; [BCN]</b>');
-    expect(text).toContain('💰 <b>Preço:</b> R$ 3.450');
-    expect(text).toContain('📅 <b>Datas:</b> 15/10/2026 a 28/10/2026');
-    expect(text).toContain('1 parada em MAD (1h40)');
-    expect(text).toContain('<a href="https://www.google.com/travel/flights?tfs=a&amp;b=c">');
+  const base = (o: FlightOffer, extra: Partial<AlertMessage> = {}): AlertMessage => ({
+    routeId: 'r1', from: 'GRU', to: 'BCN', departureDate: '2026-10-15', returnDate: '2026-10-28',
+    offer: o, maxPrice: 3500, reasons: ['below-max-price'], dropPercent: null, averagePrice: null, ...extra,
+  });
+
+  it('mostra nome da companhia, horários, conexões e link enxuto', () => {
+    const text = formatAlert(base(offer(3450)));
+    expect(text).toContain('✈️ <b>GRU → BCN</b>\n<b>LATAM Airlines</b>');
+    expect(text).toContain('💰 <b>R$ 3.450</b> · ida e volta');
+    expect(text).toContain('🛫 <b>IDA</b> · qui, 15/10/2026');
+    expect(text).toContain('Saída <b>22:05</b> → Chegada <b>16:00</b> (+1)');
+    expect(text).toContain('⏱ 16h40 no total · 1 parada');
+    expect(text).toContain('<b>GRU</b> 22:05 → <b>MAD</b> 13:00 (+1)');
+    expect(text).toContain('⏳ Conexão em MAD: 1h40');
+    expect(text).toContain('<a href="https://www.google.com/travel/flights?tfs=a&amp;b=c">Ver no Google Flights</a>');
+    expect(text).not.toMatch(/teto/i);
+  });
+
+  it('avisa quando o provedor não traz o voo de volta', () => {
+    expect(formatAlert(base(offer(3450)))).toContain('🛬 <b>VOLTA</b> · qua, 28/10/2026');
+  });
+
+  it('mostra os horários da volta quando disponíveis e usa o nome do provedor para siglas desconhecidas', () => {
+    const o = offer(3450, 'ZZ');
+    const back = buildItinerary([
+      { from: 'BCN', to: 'GRU', departure: '2026-10-28T11:15', arrival: '2026-10-28T19:40', airline: 'ZZ', airlineName: 'Zeta Air', flightNumber: 'ZZ1', durationMinutes: 745 },
+    ]);
+    const text = formatAlert(base({ ...o, itineraries: [...o.itineraries, back] }));
+    expect(text).toContain('🛬 <b>VOLTA</b> · qua, 28/10/2026');
+    expect(text).toContain('Saída <b>11:15</b> → Chegada <b>19:40</b>');
+    expect(text).toContain('Direto');
+    expect(text).toContain('🏢 Zeta Air · ZZ1');
+  });
+
+  it('inclui a queda vs. média apenas quando for o motivo', () => {
+    const text = formatAlert(base(offer(3450), { reasons: ['price-drop'], dropPercent: 16.4, averagePrice: 4120 }));
+    expect(text).toContain('📉 <b>16% mais barato</b> que a média recente (R$ 4.120)');
   });
 });

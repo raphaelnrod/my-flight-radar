@@ -52,12 +52,14 @@ function parseSegment(raw: Json, fallbackDate: string): Segment | undefined {
   const arrDate = ymd(at(raw, 21)) ?? depDate;
   const airline = str(at(raw, 22, 0));
   const flightNumber = str(at(raw, 22, 1));
+  const airlineName = str(at(raw, 22, 3));
   return {
     from,
     to,
     departure: `${depDate}T${pad(dep[0])}:${pad(dep[1])}`,
     arrival: `${arrDate}T${pad(arr[0])}:${pad(arr[1])}`,
     airline: airline ?? '??',
+    ...(airlineName && { airlineName }),
     ...(airline && flightNumber && { flightNumber: `${airline}${flightNumber}` }),
     durationMinutes: num(at(raw, 11)) ?? 0,
   };

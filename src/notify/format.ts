@@ -1,30 +1,70 @@
-import type { Itinerary, FlightOffer } from '../types.js';
+import type { FlightOffer, Itinerary, Segment } from '../types.js';
 import { formatDateBr, formatDuration } from '../utils/time.js';
 
 export const AIRLINE_NAMES: Record<string, string> = {
-  LA: 'LATAM',
-  JJ: 'LATAM',
-  IB: 'Iberia',
-  UX: 'Air Europa',
-  AF: 'Air France',
-  KL: 'KLM',
-  TP: 'TAP Air Portugal',
-  AZ: 'ITA Airways',
-  LH: 'Lufthansa',
-  BA: 'British Airways',
-  AD: 'Azul',
+  // Brasil e América do Sul
+  LA: 'LATAM Airlines',
+  JJ: 'LATAM Airlines',
+  LU: 'LATAM Airlines',
   G3: 'GOL',
-  AA: 'American Airlines',
-  UA: 'United',
-  DL: 'Delta',
+  AD: 'Azul',
+  '2Z': 'Voepass',
+  AR: 'Aerolíneas Argentinas',
   AV: 'Avianca',
   CM: 'Copa Airlines',
+  H2: 'Sky Airline',
+  JA: 'JetSMART',
+  // Europa
+  IB: 'Iberia',
+  I2: 'Iberia Express',
+  UX: 'Air Europa',
+  VY: 'Vueling',
+  TP: 'TAP Air Portugal',
+  AF: 'Air France',
+  KL: 'KLM',
+  LH: 'Lufthansa',
+  LX: 'SWISS',
+  OS: 'Austrian',
+  SN: 'Brussels Airlines',
+  BA: 'British Airways',
+  VS: 'Virgin Atlantic',
+  AZ: 'ITA Airways',
+  EI: 'Aer Lingus',
+  SK: 'SAS',
+  AY: 'Finnair',
+  LO: 'LOT Polish',
+  TK: 'Turkish Airlines',
+  FR: 'Ryanair',
+  U2: 'easyJet',
+  // América do Norte
+  AA: 'American Airlines',
+  UA: 'United Airlines',
+  DL: 'Delta Air Lines',
+  AC: 'Air Canada',
+  AM: 'Aeroméxico',
+  B6: 'JetBlue',
+  // Oriente Médio, África e Ásia
   EK: 'Emirates',
   QR: 'Qatar Airways',
-  TK: 'Turkish Airlines',
+  EY: 'Etihad',
+  ET: 'Ethiopian Airlines',
+  SA: 'South African Airways',
+  AT: 'Royal Air Maroc',
+  SQ: 'Singapore Airlines',
+  CX: 'Cathay Pacific',
+  NH: 'ANA',
+  JL: 'Japan Airlines',
+  KE: 'Korean Air',
+  AI: 'Air India',
+  QF: 'Qantas',
 };
 
-export const airlineName = (code: string): string => AIRLINE_NAMES[code] ?? code;
+/** Nome legível: tabela local, depois o nome informado pelo provedor, por fim a sigla. */
+export function airlineLabel(code: string, segments: Segment[] = []): string {
+  return (
+    AIRLINE_NAMES[code] ?? segments.find((s) => s.airline === code && s.airlineName)?.airlineName ?? code
+  );
+}
 
 export interface AlertMessage {
   routeId: string;
@@ -42,57 +82,94 @@ export interface AlertMessage {
 export const escapeHtml = (text: string): string =>
   text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
+/** `3450` -> `R$ 3.450` (sem depender de ICU). */
 const formatBrl = (value: number): string =>
-  `R$ ${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(Math.round(value))}`;
+  `R$ ${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 
-export function describeStops(itinerary: Itinerary): string {
-  const { layovers, durationMinutes } = itinerary;
-  const total = formatDuration(durationMinutes);
-  if (layovers.length === 0) return `Direto (${total})`;
-  const places = layovers.map((l) => `${l.airport} (${formatDuration(l.durationMinutes)})`).join(', ');
-  const noun = layovers.length === 1 ? 'parada' : 'paradas';
-  return `${layovers.length} ${noun} em ${places} · total ${total}`;
+const WEEKDAYS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+/** `2026-10-15` -> `qui, 15/10/2026` */
+function formatDay(date: string): string {
+  const weekday = WEEKDAYS[new Date(`${date}T00:00:00Z`).getUTCDay()] ?? '';
+  return `${weekday}, ${formatDateBr(date)}`;
 }
 
-const formatDateTime = (isoLocal: string): string => `${formatDateBr(isoLocal.slice(0, 10)).slice(0, 5)} ${isoLocal.slice(11, 16)}`;
+const timeOf = (isoLocal: string): string => isoLocal.slice(11, 16);
+
+/** `(+1)` quando a chegada ocorre em outro dia que a saída. */
+function dayShift(from: string, to: string): string {
+  const days = Math.round((Date.parse(`${to.slice(0, 10)}T00:00:00Z`) - Date.parse(`${from.slice(0, 10)}T00:00:00Z`)) / 86_400_000);
+  return days > 0 ? ` (+${days})` : '';
+}
+
+function describeStops(itinerary: Itinerary): string {
+  const count = itinerary.layovers.length;
+  if (count === 0) return 'Direto';
+  return `${count} ${count === 1 ? 'parada' : 'paradas'}`;
+}
+
+function formatItinerary(label: string, icon: string, itinerary: Itinerary): string[] {
+  const first = itinerary.segments[0];
+  const last = itinerary.segments[itinerary.segments.length - 1];
+  if (!first || !last) return [];
+
+  const names = [...new Set(itinerary.segments.map((s) => airlineLabel(s.airline, itinerary.segments)))];
+  const flight = itinerary.segments.length === 1 && first.flightNumber ? ` · ${escapeHtml(first.flightNumber)}` : '';
+  const lines = [
+    `${icon} <b>${label}</b> · ${formatDay(first.departure.slice(0, 10))}`,
+    `🕐 Saída <b>${timeOf(first.departure)}</b> → Chegada <b>${timeOf(last.arrival)}</b>${dayShift(first.departure, last.arrival)}`,
+    `⏱ ${formatDuration(itinerary.durationMinutes)} no total · ${describeStops(itinerary)}`,
+    `🏢 ${escapeHtml(names.join(' + '))}${flight}`,
+  ];
+
+  if (itinerary.segments.length === 1) return lines;
+
+  lines.push('');
+  itinerary.segments.forEach((segment, i) => {
+    const number = segment.flightNumber ? ` · ${escapeHtml(segment.flightNumber)}` : '';
+    lines.push(
+      `   <b>${segment.from}</b> ${timeOf(segment.departure)} → <b>${segment.to}</b> ${timeOf(segment.arrival)}${dayShift(segment.departure, segment.arrival)}${number}`,
+    );
+    const layover = itinerary.layovers[i];
+    if (layover) lines.push(`   ⏳ Conexão em ${layover.airport}: ${formatDuration(layover.durationMinutes)}`);
+  });
+  return lines;
+}
 
 /** Mensagem em HTML do Telegram (parse_mode=HTML). */
 export function formatAlert(alert: AlertMessage): string {
   const { offer } = alert;
-  const outbound = offer.itineraries[0];
-  const inbound = offer.itineraries[1];
-  const airlines = offer.airlines.map(airlineName).join(' + ');
+  const [outbound, inbound] = offer.itineraries;
+  const allSegments = offer.itineraries.flatMap((i) => i.segments);
+  const airlines = offer.airlines.map((code) => airlineLabel(code, allSegments)).join(' + ');
 
-  const dates = alert.returnDate
-    ? `${formatDateBr(alert.departureDate)} a ${formatDateBr(alert.returnDate)}`
-    : formatDateBr(alert.departureDate);
-
-  const lines = [
-    `✈️ <b>Alerta de Passagem ${escapeHtml(airlines)}: [${alert.from}] -&gt; [${alert.to}]</b>`,
-    `💰 <b>Preço:</b> ${formatBrl(offer.price)}`,
-    `📅 <b>Datas:</b> ${dates}`,
+  const blocks: string[][] = [
+    [
+      `✈️ <b>${alert.from} → ${alert.to}</b>`,
+      `<b>${escapeHtml(airlines)}</b>`,
+    ],
+    [`💰 <b>${formatBrl(offer.price)}</b> ${alert.returnDate ? '· ida e volta' : '· somente ida'}`],
   ];
 
-  if (outbound) {
-    const label = inbound ? 'Ida: ' : '';
-    let stops = `${label}${describeStops(outbound)}`;
-    if (inbound) stops += ` | Volta: ${describeStops(inbound)}`;
-    lines.push(`⏱️ <b>Duração / Escalas:</b> ${escapeHtml(stops)}`);
+  if (outbound) blocks.push(formatItinerary('IDA', '🛫', outbound));
 
-    const first = outbound.segments[0];
-    const last = outbound.segments[outbound.segments.length - 1];
-    if (first && last) {
-      lines.push(`🛫 <b>Horários:</b> ${formatDateTime(first.departure)} → ${formatDateTime(last.arrival)}`);
-    }
+  if (inbound) {
+    blocks.push(formatItinerary('VOLTA', '🛬', inbound));
+  } else if (alert.returnDate) {
+    // Nem todo provedor detalha o voo de volta numa busca de ida e volta.
+    blocks.push([
+      `🛬 <b>VOLTA</b> · ${formatDay(alert.returnDate)}`,
+      '<i>Horários da volta não informados por esta fonte — veja no Google Flights.</i>',
+    ]);
   }
 
-  const why: string[] = [];
-  if (alert.reasons.includes('below-max-price')) why.push(`abaixo do teto de ${formatBrl(alert.maxPrice)}`);
   if (alert.reasons.includes('price-drop') && alert.dropPercent !== null && alert.averagePrice !== null) {
-    why.push(`${alert.dropPercent.toFixed(0)}% abaixo da média recente (${formatBrl(alert.averagePrice)})`);
+    blocks.push([
+      `📉 <b>${alert.dropPercent.toFixed(0)}% mais barato</b> que a média recente (${formatBrl(alert.averagePrice)})`,
+    ]);
   }
-  if (why.length > 0) lines.push(`📉 ${escapeHtml(why.join(' · '))}`);
 
-  lines.push(`🔗 <a href="${escapeHtml(offer.link)}">Ver no Google Flights / Link de Compra</a>`);
-  return lines.join('\n');
+  blocks.push([`🔗 <a href="${escapeHtml(offer.link)}">Ver no Google Flights</a>`]);
+
+  return blocks.map((lines) => lines.join('\n')).join('\n\n');
 }
