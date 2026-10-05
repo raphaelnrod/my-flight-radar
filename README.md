@@ -16,6 +16,7 @@ cron (3h) → Monitor → FlightProvider (Google Flights → SerpApi → Amadeus
 
 Requer **Node.js 22 ou superior** (veja `.nvmrc`). Em Ubuntu: `curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs`.
 Se o `npm ci` tentar compilar o `better-sqlite3` (aparece `node-gyp rebuild`), instale as ferramentas: `sudo apt-get install -y build-essential python3`.
+Em Linux com glibc antiga (ex.: Ubuntu 20.04) o binário pré-compilado pode falhar com `GLIBC_2.xx not found`; nesse caso force a compilação: `npm_config_build_from_source=true npm ci`.
 
 ```bash
 npm ci
