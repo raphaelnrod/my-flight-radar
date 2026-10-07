@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ProviderError, type FlightOffer, type FlightProvider, type SearchQuery, type Segment } from '../types.js';
 import { fetchWithRetry } from '../utils/http.js';
 import { buildItinerary, uniqueAirlines } from '../utils/itinerary.js';
+import { isMultiCity, returnLeg } from '../utils/query.js';
 import { googleFlightsUrl } from './google/tfs.js';
 
 const airport = z.object({ id: z.string(), time: z.string() });
@@ -35,17 +36,30 @@ export class SerpApiProvider implements FlightProvider {
   async search(query: SearchQuery): Promise<FlightOffer[]> {
     const params = new URLSearchParams({
       engine: 'google_flights',
-      departure_id: query.from,
-      arrival_id: query.to,
-      outbound_date: query.departureDate,
       currency: query.currency,
       hl: 'pt',
       gl: 'br',
       adults: String(query.adults),
-      type: query.returnDate ? '1' : '2',
       api_key: this.apiKey,
     });
-    if (query.returnDate) params.set('return_date', query.returnDate);
+    if (query.returnDate && isMultiCity(query)) {
+      // type=3: multidestinos; o preço retornado é o do bilhete completo.
+      const back = returnLeg(query);
+      params.set('type', '3');
+      params.set(
+        'multi_city_json',
+        JSON.stringify([
+          { departure_id: query.from, arrival_id: query.to, date: query.departureDate },
+          { departure_id: back.from, arrival_id: back.to, date: query.returnDate },
+        ]),
+      );
+    } else {
+      params.set('type', query.returnDate ? '1' : '2');
+      params.set('departure_id', query.from);
+      params.set('arrival_id', query.to);
+      params.set('outbound_date', query.departureDate);
+      if (query.returnDate) params.set('return_date', query.returnDate);
+    }
     if (query.airlines.length > 0) params.set('include_airlines', query.airlines.join(','));
 
     const response = await fetchWithRetry(`https://serpapi.com/search.json?${params.toString()}`).catch(

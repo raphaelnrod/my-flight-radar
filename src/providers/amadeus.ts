@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ProviderError, type FlightOffer, type FlightProvider, type SearchQuery, type Segment } from '../types.js';
 import { fetchWithRetry } from '../utils/http.js';
 import { buildItinerary, uniqueAirlines } from '../utils/itinerary.js';
+import { isMultiCity, returnLeg } from '../utils/query.js';
 import { googleFlightsUrl } from './google/tfs.js';
 
 const segmentSchema = z.object({
@@ -58,22 +59,7 @@ export class AmadeusProvider implements FlightProvider {
   }
 
   async search(query: SearchQuery): Promise<FlightOffer[]> {
-    const params = new URLSearchParams({
-      originLocationCode: query.from,
-      destinationLocationCode: query.to,
-      departureDate: query.departureDate,
-      adults: String(query.adults),
-      currencyCode: query.currency,
-      max: '30',
-    });
-    if (query.returnDate) params.set('returnDate', query.returnDate);
-    if (query.airlines.length > 0) params.set('includedAirlineCodes', query.airlines.join(','));
-
-    const response = await fetchWithRetry(`${this.baseUrl}/v2/shopping/flight-offers?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${await this.accessToken()}` },
-    }).catch((error: unknown) => {
-      throw new ProviderError(this.name, 'falha de rede', { cause: error });
-    });
+    const response = isMultiCity(query) ? await this.searchMultiCity(query) : await this.searchSimple(query);
     if (response.status === 401) this.token = null;
     const parsed = offersResponse.safeParse(await response.json().catch(() => null));
     if (!parsed.success) throw new ProviderError(this.name, `resposta inválida (HTTP ${response.status})`);
@@ -100,6 +86,52 @@ export class AmadeusProvider implements FlightProvider {
         airlines: uniqueAirlines(itineraries),
         link,
       };
+    });
+  }
+
+  private async searchSimple(query: SearchQuery): Promise<Response> {
+    const params = new URLSearchParams({
+      originLocationCode: query.from,
+      destinationLocationCode: query.to,
+      departureDate: query.departureDate,
+      adults: String(query.adults),
+      currencyCode: query.currency,
+      max: '30',
+    });
+    if (query.returnDate) params.set('returnDate', query.returnDate);
+    if (query.airlines.length > 0) params.set('includedAirlineCodes', query.airlines.join(','));
+
+    return fetchWithRetry(`${this.baseUrl}/v2/shopping/flight-offers?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${await this.accessToken()}` },
+    }).catch((error: unknown) => {
+      throw new ProviderError(this.name, 'falha de rede', { cause: error });
+    });
+  }
+
+  /** Multidestinos só existe na versão POST da API. */
+  private async searchMultiCity(query: SearchQuery): Promise<Response> {
+    const back = returnLeg(query);
+    const body = {
+      currencyCode: query.currency,
+      originDestinations: [
+        { id: '1', originLocationCode: query.from, destinationLocationCode: query.to, departureDateTimeRange: { date: query.departureDate } },
+        { id: '2', originLocationCode: back.from, destinationLocationCode: back.to, departureDateTimeRange: { date: query.returnDate } },
+      ],
+      travelers: Array.from({ length: query.adults }, (_, i) => ({ id: String(i + 1), travelerType: 'ADULT' })),
+      sources: ['GDS'],
+      searchCriteria: {
+        maxFlightOffers: 30,
+        ...(query.airlines.length > 0 && {
+          flightFilters: { carrierRestrictions: { includedCarrierCodes: query.airlines } },
+        }),
+      },
+    };
+    return fetchWithRetry(`${this.baseUrl}/v2/shopping/flight-offers`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await this.accessToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch((error: unknown) => {
+      throw new ProviderError(this.name, 'falha de rede', { cause: error });
     });
   }
 }

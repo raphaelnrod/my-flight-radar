@@ -33,6 +33,15 @@ describe('google flights', () => {
     expect([...bytes.subarray(-3)]).toEqual([0x98, 0x01, 0x01]);
   });
 
+  it('codifica busca multidestinos (volta por outro aeroporto) com trip=3', () => {
+    const bytes = Buffer.from(encodeTfs({ ...query, returnFrom: 'LHR' }), 'base64');
+    const text = bytes.toString('latin1');
+    for (const s of ['BCN', 'LHR', '2026-10-28']) expect(text).toContain(s);
+    expect([...bytes.subarray(-3)]).toEqual([0x98, 0x01, 0x03]);
+    const oneWay = Buffer.from(encodeTfs({ ...query, departureDate: '2026-10-15', returnDate: '' }), 'base64');
+    expect([...oneWay.subarray(-3)]).toEqual([0x98, 0x01, 0x02]);
+  });
+
   it('extrai e interpreta o payload ds:1 (voo com conexão em MAD)', () => {
     const seg = (from: string, to: string, dep: unknown[], arr: unknown[], mins: number, d1: number[], d2: number[], no: string) => {
       const s: unknown[] = new Array(23).fill(null);
@@ -84,6 +93,17 @@ describe('serpapi', () => {
     expect(offers[0]?.price).toBe(3200);
     expect(offers[0]?.itineraries[0]?.layovers).toEqual([{ airport: 'MAD', durationMinutes: 100 }]);
     expect(offers[0]?.itineraries[0]?.segments[0]?.flightNumber).toBe('LA8084');
+  });
+
+  it('usa type=3 com multi_city_json em buscas multidestinos', async () => {
+    stubFetch({ best_flights: [], other_flights: [] });
+    await new SerpApiProvider('k').search({ ...query, returnFrom: 'LHR' });
+    const url = new URL(String((vi.mocked(fetch).mock.calls[0] as unknown[])[0]));
+    expect(url.searchParams.get('type')).toBe('3');
+    expect(JSON.parse(url.searchParams.get('multi_city_json') ?? '')).toEqual([
+      { departure_id: 'GRU', arrival_id: 'BCN', date: '2026-10-15' },
+      { departure_id: 'LHR', arrival_id: 'GRU', date: '2026-10-28' },
+    ]);
   });
 
   it('trata "sem resultados" como lista vazia e demais erros como falha', async () => {

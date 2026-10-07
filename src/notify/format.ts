@@ -70,6 +70,9 @@ export interface AlertMessage {
   routeId: string;
   from: string;
   to: string;
+  /** Aeroportos da volta quando diferentes do inverso da ida (rota multidestinos). */
+  returnFrom?: string;
+  returnTo?: string;
   departureDate: string;
   returnDate?: string;
   offer: FlightOffer;
@@ -108,7 +111,7 @@ function describeStops(itinerary: Itinerary): string {
   return `${count} ${count === 1 ? 'parada' : 'paradas'}`;
 }
 
-function formatItinerary(label: string, icon: string, itinerary: Itinerary): string[] {
+function formatItinerary(label: string, icon: string, itinerary: Itinerary, route?: string): string[] {
   const first = itinerary.segments[0];
   const last = itinerary.segments[itinerary.segments.length - 1];
   if (!first || !last) return [];
@@ -116,7 +119,7 @@ function formatItinerary(label: string, icon: string, itinerary: Itinerary): str
   const names = [...new Set(itinerary.segments.map((s) => airlineLabel(s.airline, itinerary.segments)))];
   const flight = itinerary.segments.length === 1 && first.flightNumber ? ` · ${escapeHtml(first.flightNumber)}` : '';
   const lines = [
-    `${icon} <b>${label}</b> · ${formatDay(first.departure.slice(0, 10))}`,
+    `${icon} <b>${label}</b>${route ? ` · ${route}` : ''} · ${formatDay(first.departure.slice(0, 10))}`,
     `🕐 Saída <b>${timeOf(first.departure)}</b> → Chegada <b>${timeOf(last.arrival)}</b>${dayShift(first.departure, last.arrival)}`,
     `⏱ ${formatDuration(itinerary.durationMinutes)} no total · ${describeStops(itinerary)}`,
     `🏢 ${escapeHtml(names.join(' + '))}${flight}`,
@@ -136,6 +139,8 @@ function formatItinerary(label: string, icon: string, itinerary: Itinerary): str
   return lines;
 }
 
+const link = (url: string, text: string): string => `🔗 <a href="${escapeHtml(url)}">${text}</a>`;
+
 /** Mensagem em HTML do Telegram (parse_mode=HTML). */
 export function formatAlert(alert: AlertMessage): string {
   const { offer } = alert;
@@ -143,22 +148,40 @@ export function formatAlert(alert: AlertMessage): string {
   const allSegments = offer.itineraries.flatMap((i) => i.segments);
   const airlines = offer.airlines.map((code) => airlineLabel(code, allSegments)).join(' + ');
 
+  const backFrom = alert.returnFrom ?? alert.to;
+  const backTo = alert.returnTo ?? alert.from;
+  const multiDestination = alert.returnDate !== undefined && (backFrom !== alert.to || backTo !== alert.from);
+  const outRoute = multiDestination ? `${alert.from} → ${alert.to}` : undefined;
+  const backRoute = multiDestination ? `${backFrom} → ${backTo}` : undefined;
+  const [outTicket, backTicket] = offer.tickets ?? [];
+  const separate = outTicket !== undefined && backTicket !== undefined;
+
+  const priceKind = !alert.returnDate
+    ? '· somente ida'
+    : separate
+      ? '· ida + volta (2 bilhetes)'
+      : multiDestination
+        ? '· ida e volta (multidestinos)'
+        : '· ida e volta';
+  const priceBlock = [`💰 <b>${formatBrl(offer.price)}</b> ${priceKind}`];
+  if (separate) priceBlock.push(`     Ida ${formatBrl(outTicket.price)} · Volta ${formatBrl(backTicket.price)}`);
+
   const blocks: string[][] = [
     [
-      `✈️ <b>${alert.from} → ${alert.to}</b>`,
+      multiDestination ? `✈️ <b>${outRoute ?? ''}</b>  ·  <b>${backRoute ?? ''}</b>` : `✈️ <b>${alert.from} → ${alert.to}</b>`,
       `<b>${escapeHtml(airlines)}</b>`,
     ],
-    [`💰 <b>${formatBrl(offer.price)}</b> ${alert.returnDate ? '· ida e volta' : '· somente ida'}`],
+    priceBlock,
   ];
 
-  if (outbound) blocks.push(formatItinerary('IDA', '🛫', outbound));
+  if (outbound) blocks.push(formatItinerary('IDA', '🛫', outbound, outRoute));
 
   if (inbound) {
-    blocks.push(formatItinerary('VOLTA', '🛬', inbound));
+    blocks.push(formatItinerary('VOLTA', '🛬', inbound, backRoute));
   } else if (alert.returnDate) {
     // Nem todo provedor detalha o voo de volta numa busca de ida e volta.
     blocks.push([
-      `🛬 <b>VOLTA</b> · ${formatDay(alert.returnDate)}`,
+      `🛬 <b>VOLTA</b>${backRoute ? ` · ${backRoute}` : ''} · ${formatDay(alert.returnDate)}`,
       '<i>Horários da volta não informados por esta fonte — veja no Google Flights.</i>',
     ]);
   }
@@ -169,7 +192,12 @@ export function formatAlert(alert: AlertMessage): string {
     ]);
   }
 
-  blocks.push([`🔗 <a href="${escapeHtml(offer.link)}">Ver no Google Flights</a>`]);
+  if (separate) {
+    blocks.push(['⚠️ <i>Bilhetes separados: compre a ida e a volta individualmente.</i>']);
+    blocks.push([link(outTicket.link, 'Ver ida no Google Flights'), link(backTicket.link, 'Ver volta no Google Flights')]);
+  } else {
+    blocks.push([link(offer.link, 'Ver no Google Flights')]);
+  }
 
   return blocks.map((lines) => lines.join('\n')).join('\n\n');
 }

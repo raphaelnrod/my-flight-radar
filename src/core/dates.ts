@@ -14,7 +14,7 @@ export function expandDateSpec(spec: DateSpec): string[] {
 }
 
 /** Reduz a lista a `max` itens espaçados uniformemente, preservando primeiro e último. */
-function sample<T>(items: T[], max: number): T[] {
+export function sample<T>(items: T[], max: number): T[] {
   if (items.length <= max) return items;
   if (max === 1) return items.slice(0, 1);
   const picked: T[] = [];
@@ -30,23 +30,31 @@ function sample<T>(items: T[], max: number): T[] {
  * estadia mínima/máxima e limita o total para não estourar o rate limit.
  */
 export function buildSearchDates(route: RouteConfig, today: string, maxSearches: number): SearchDates[] {
+  if (route.returnDateRange) return sample(datePairs(route, today), maxSearches);
   const departures = expandDateSpec(route.departureDateRange).filter((d) => d > today);
-  const combos: SearchDates[] = [];
+  return sample(
+    departures.map((departureDate) => ({ departureDate })),
+    maxSearches,
+  );
+}
 
-  if (!route.returnDateRange) {
-    for (const departureDate of departures) combos.push({ departureDate });
-    return sample(combos, maxSearches);
-  }
-
+/** Todas as combinações ida/volta futuras que respeitam a estadia mínima/máxima. */
+export function datePairs(route: RouteConfig, today: string): Required<SearchDates>[] {
+  if (!route.returnDateRange) return [];
+  const departures = expandDateSpec(route.departureDateRange).filter((d) => d > today);
   const returns = expandDateSpec(route.returnDateRange);
+  const pairs: Required<SearchDates>[] = [];
   for (const departureDate of departures) {
     for (const returnDate of returns) {
-      const stay = diffDays(departureDate, returnDate);
-      if (stay <= 0) continue;
-      if (route.minStayDays !== undefined && stay < route.minStayDays) continue;
-      if (route.maxStayDays !== undefined && stay > route.maxStayDays) continue;
-      combos.push({ departureDate, returnDate });
+      if (isValidStay(route, departureDate, returnDate)) pairs.push({ departureDate, returnDate });
     }
   }
-  return sample(combos, maxSearches);
+  return pairs;
+}
+
+export function isValidStay(route: RouteConfig, departureDate: string, returnDate: string): boolean {
+  const stay = diffDays(departureDate, returnDate);
+  if (stay <= 0) return false;
+  if (route.minStayDays !== undefined && stay < route.minStayDays) return false;
+  return route.maxStayDays === undefined || stay <= route.maxStayDays;
 }

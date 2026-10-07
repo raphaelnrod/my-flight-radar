@@ -34,6 +34,14 @@ const routeSchema = z
     id: z.string().min(1),
     fromAirport: iataCode,
     toAirport: iataCode,
+    returnFromAirport: z
+      .union([iataCode, z.array(iataCode).min(1)])
+      .transform((value) => (Array.isArray(value) ? [...new Set(value)] : [value]))
+      .optional(),
+    returnToAirport: iataCode.optional(),
+    includeReverse: z.boolean().default(false),
+    ticketMode: z.enum(['both', 'separate', 'single']).default('both'),
+    maxSearches: z.number().int().positive().optional(),
     targetAirlines: z.array(airlineCode).default(['LA']),
     departureDateRange: dateSpec,
     returnDateRange: dateSpec.optional(),
@@ -42,11 +50,23 @@ const routeSchema = z
     maxPrice: z.number().positive(),
     active: z.boolean().default(true),
   })
-  .refine((route) => route.fromAirport !== route.toAirport, 'origem e destino iguais');
+  .refine((route) => route.fromAirport !== route.toAirport, 'origem e destino iguais')
+  .refine(
+    (route) => (route.returnFromAirport === undefined && route.returnToAirport === undefined) || route.returnDateRange,
+    'returnFromAirport/returnToAirport exigem returnDateRange',
+  )
+  .refine(
+    (route) => !route.returnFromAirport?.includes(route.returnToAirport ?? route.fromAirport),
+    'origem e destino da volta iguais',
+  );
 
 const routesSchema = z
   .array(routeSchema)
   .refine((routes) => new Set(routes.map((r) => r.id)).size === routes.length, 'ids de rota duplicados');
+
+/** Rota com volta por aeroporto/cidade diferente do destino da ida (ou volta para outra origem). */
+export const isMultiDestination = (route: RouteConfig): boolean =>
+  route.returnFromAirport !== undefined || route.returnToAirport !== undefined;
 
 export function parseRoutes(raw: unknown): RouteConfig[] {
   const result = routesSchema.safeParse(raw);
@@ -56,9 +76,13 @@ export function parseRoutes(raw: unknown): RouteConfig[] {
   // O parse do zod não preserva a distinção "ausente" vs "undefined" exigida por
   // exactOptionalPropertyTypes; removemos chaves undefined explicitamente.
   return result.data.map((route) => {
-    const { returnDateRange, minStayDays, maxStayDays, ...rest } = route;
+    const { returnDateRange, minStayDays, maxStayDays, returnFromAirport, returnToAirport, maxSearches, ...rest } =
+      route;
     return {
       ...rest,
+      ...(returnFromAirport !== undefined && { returnFromAirport }),
+      ...(returnToAirport !== undefined && { returnToAirport }),
+      ...(maxSearches !== undefined && { maxSearches }),
       ...(returnDateRange !== undefined && { returnDateRange }),
       ...(minStayDays !== undefined && { minStayDays }),
       ...(maxStayDays !== undefined && { maxStayDays }),

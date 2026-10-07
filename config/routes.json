@@ -19,5 +19,22 @@
     "departureDateRange": ["2026-11-10", "2026-11-17"],
     "maxPrice": 3000,
     "active": false
+  },
+  {
+    "id": "europa-ago-2027",
+    "fromAirport": "GRU",
+    "toAirport": "BCN",
+    "returnFromAirport": ["LHR", "LGW"],
+    "returnToAirport": "GRU",
+    "includeReverse": true,
+    "ticketMode": "both",
+    "targetAirlines": [],
+    "departureDateRange": { "from": "2027-08-01", "to": "2027-08-05" },
+    "returnDateRange": { "from": "2027-08-18", "to": "2027-08-22" },
+    "minStayDays": 14,
+    "maxStayDays": 20,
+    "maxSearches": 60,
+    "maxPrice": 6000,
+    "active": false
   }
 ]
