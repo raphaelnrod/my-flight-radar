@@ -6,19 +6,25 @@ export type TicketMode = 'both' | 'separate' | 'single';
 
 export interface RouteConfig {
   id: string;
-  /** Origem da ida (aeroporto ou código de cidade). */
-  fromAirport: string;
-  /** Destino da ida (aeroporto ou código de cidade). */
-  toAirport: string;
+  /** Origem(ns) da ida: aeroportos ou códigos de cidade. */
+  fromAirport: string[];
+  /** Destino(s) da ida (porta de entrada): aeroportos ou códigos de cidade. */
+  toAirport: string[];
   /**
-   * Origem(ns) da volta. Quando definida (ou `returnToAirport`), a rota é "multidestinos":
-   * ida e volta por aeroportos/cidades diferentes. Padrão = `toAirport`.
+   * Origem(ns) da volta (porta de saída). Padrão = `toAirport`.
+   * A rota é "multidestinos" quando há mais de um aeroporto em algum lado ou quando a volta
+   * difere do inverso da ida.
    */
   returnFromAirport?: string[];
-  /** Destino da volta. Padrão = `fromAirport`. */
-  returnToAirport?: string;
+  /** Destino(s) da volta. Padrão = `fromAirport` (pode voltar para qualquer um deles). */
+  returnToAirport?: string[];
   /** Também pesquisa a combinação invertida (ida para `returnFromAirport`, volta saindo de `toAirport`). */
   includeReverse: boolean;
+  /**
+   * Também aceita entrar e sair pela mesma cidade de destino (ex.: ida e volta por BCN),
+   * além das combinações entre `toAirport` e `returnFromAirport`.
+   */
+  allowSameEntryExit: boolean;
   /** `separate` = dois bilhetes só ida; `single` = um bilhete multidestinos; `both` = os dois. */
   ticketMode: TicketMode;
   /** Sobrescreve MAX_SEARCHES_PER_ROUTE para esta rota. */

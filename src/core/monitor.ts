@@ -106,6 +106,9 @@ export class Monitor {
 
   /** Ida e volta pela mesma rota (ou só ida): uma busca por combinação de datas. */
   private async runSameRoute(route: RouteConfig, today: string, maxSearches: number, summary: CycleSummary) {
+    // Neste modo há exatamente um aeroporto de cada lado (ver isMultiDestination).
+    const from = route.fromAirport[0] ?? '';
+    const to = route.toAirport[0] ?? '';
     const dates = buildSearchDates(route, today, maxSearches);
     this.log.info({ routeId: route.id, searches: dates.length }, 'processando rota');
     for (const date of dates) {
@@ -113,8 +116,8 @@ export class Monitor {
       try {
         const query: SearchQuery = {
           ...this.baseQuery(route),
-          from: route.fromAirport,
-          to: route.toAirport,
+          from,
+          to,
           departureDate: date.departureDate,
           ...(date.returnDate !== undefined && { returnDate: date.returnDate }),
         };
@@ -123,7 +126,7 @@ export class Monitor {
           this.log.info({ routeId: route.id, ...date }, 'nenhuma oferta das companhias alvo');
           continue;
         }
-        if (await this.evaluate(route, date, best, { from: route.fromAirport, to: route.toAirport })) summary.alerts++;
+        if (await this.evaluate(route, date, best, { from, to })) summary.alerts++;
       } catch (error) {
         summary.failures++;
         this.log.error({ routeId: route.id, ...date, err: (error as Error).message }, 'falha ao verificar data');

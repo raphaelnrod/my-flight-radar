@@ -13,6 +13,13 @@ const iataCode = z
   .regex(/^[A-Za-z]{3}$/, 'código IATA de 3 letras')
   .transform((value) => value.toUpperCase());
 
+/** Um código ou lista de códigos, normalizado para lista sem duplicatas. */
+const airportList = z
+  .union([iataCode, z.array(iataCode).min(1)])
+  .transform((value) => (Array.isArray(value) ? [...new Set(value)] : [value]));
+
+const overlaps = (a: string[], b: string[]): boolean => a.some((code) => b.includes(code));
+
 const airlineCode = z
   .string()
   .regex(/^[A-Za-z0-9]{2}$/, 'código IATA de companhia (2 caracteres)')
@@ -32,14 +39,12 @@ const dateSpec = z.union([
 const routeSchema = z
   .object({
     id: z.string().min(1),
-    fromAirport: iataCode,
-    toAirport: iataCode,
-    returnFromAirport: z
-      .union([iataCode, z.array(iataCode).min(1)])
-      .transform((value) => (Array.isArray(value) ? [...new Set(value)] : [value]))
-      .optional(),
-    returnToAirport: iataCode.optional(),
+    fromAirport: airportList,
+    toAirport: airportList,
+    returnFromAirport: airportList.optional(),
+    returnToAirport: airportList.optional(),
     includeReverse: z.boolean().default(false),
+    allowSameEntryExit: z.boolean().default(false),
     ticketMode: z.enum(['both', 'separate', 'single']).default('both'),
     maxSearches: z.number().int().positive().optional(),
     targetAirlines: z.array(airlineCode).default(['LA']),
@@ -50,23 +55,34 @@ const routeSchema = z
     maxPrice: z.number().positive(),
     active: z.boolean().default(true),
   })
-  .refine((route) => route.fromAirport !== route.toAirport, 'origem e destino iguais')
+  .refine((route) => !overlaps(route.fromAirport, route.toAirport), 'origem e destino da ida em comum')
   .refine(
-    (route) => (route.returnFromAirport === undefined && route.returnToAirport === undefined) || route.returnDateRange,
-    'returnFromAirport/returnToAirport exigem returnDateRange',
+    (route) => !overlaps(route.returnFromAirport ?? route.toAirport, route.returnToAirport ?? route.fromAirport),
+    'origem e destino da volta em comum',
   )
   .refine(
-    (route) => !route.returnFromAirport?.includes(route.returnToAirport ?? route.fromAirport),
-    'origem e destino da volta iguais',
+    (route) =>
+      route.returnDateRange !== undefined ||
+      (route.returnFromAirport === undefined &&
+        route.returnToAirport === undefined &&
+        route.fromAirport.length === 1 &&
+        route.toAirport.length === 1),
+    'listas de aeroportos, returnFromAirport e returnToAirport exigem returnDateRange',
   );
 
 const routesSchema = z
   .array(routeSchema)
   .refine((routes) => new Set(routes.map((r) => r.id)).size === routes.length, 'ids de rota duplicados');
 
-/** Rota com volta por aeroporto/cidade diferente do destino da ida (ou volta para outra origem). */
+/**
+ * Rota pesquisada trecho a trecho: vários aeroportos em algum lado ou volta por aeroportos
+ * diferentes do inverso da ida. Caso contrário, é a busca simples de ida e volta (ou só ida).
+ */
 export const isMultiDestination = (route: RouteConfig): boolean =>
-  route.returnFromAirport !== undefined || route.returnToAirport !== undefined;
+  route.returnFromAirport !== undefined ||
+  route.returnToAirport !== undefined ||
+  route.fromAirport.length > 1 ||
+  route.toAirport.length > 1;
 
 export function parseRoutes(raw: unknown): RouteConfig[] {
   const result = routesSchema.safeParse(raw);

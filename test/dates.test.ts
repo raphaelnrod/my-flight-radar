@@ -26,7 +26,7 @@ describe('datas', () => {
 
   it('normaliza IATA e aplica defaults', () => {
     const r = route();
-    expect(r).toMatchObject({ fromAirport: 'GRU', toAirport: 'BCN', targetAirlines: ['LA'], active: true });
+    expect(r).toMatchObject({ fromAirport: ['GRU'], toAirport: ['BCN'], targetAirlines: ['LA'], active: true });
   });
 
   it('descarta datas passadas', () => {

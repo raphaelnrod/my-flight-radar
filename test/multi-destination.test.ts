@@ -42,7 +42,11 @@ describe('rotas multidestinos: configuração', () => {
     expect(route().returnFromAirport).toEqual(['LHR']);
     expect(route({ returnFromAirport: ['lhr', 'lgw'] }).returnFromAirport).toEqual(['LHR', 'LGW']);
     expect(() => route({ returnDateRange: undefined })).toThrow(/returnDateRange/);
-    expect(() => route({ returnFromAirport: 'GRU' })).toThrow(/volta iguais/);
+    expect(() => route({ returnFromAirport: 'GRU' })).toThrow(/volta em comum/);
+    expect(() => route({ fromAirport: ['GRU', 'BCN'] })).toThrow(/ida em comum/);
+    expect(() =>
+      parseRoutes([{ id: 'a', fromAirport: ['GRU', 'GIG'], toAirport: 'BCN', departureDateRange: ['2027-08-01'], maxPrice: 1 }]),
+    ).toThrow(/exigem returnDateRange/);
   });
 
   it('gera a variante inversa e expande códigos de cidade', () => {
@@ -51,6 +55,45 @@ describe('rotas multidestinos: configuração', () => {
     expect(variants[0]).toMatchObject({ outFrom: ['GRU'], outTo: ['BCN'], inTo: ['GRU'], reversed: false });
     expect(variants[0]?.inFrom).toContain('LGW');
     expect(variants[1]).toMatchObject({ outTo: variants[0]?.inFrom, inFrom: ['BCN'], reversed: true });
+  });
+});
+
+describe('rotas multidestinos: vários aeroportos no Brasil', () => {
+  const eurotrip = (extra: object = {}): RouteConfig =>
+    route({ fromAirport: ['GRU', 'GIG', 'VCP'], returnFromAirport: ['LHR', 'LGW'], includeReverse: true, ...extra });
+
+  it('sai de qualquer origem e volta para qualquer uma delas, sempre entrando e saindo por cidades diferentes', () => {
+    const variants = buildVariants(eurotrip());
+    expect(variants).toEqual([
+      { outFrom: ['GRU', 'GIG', 'VCP'], outTo: ['BCN'], inFrom: ['LHR', 'LGW'], inTo: ['GRU', 'GIG', 'VCP'], reversed: false },
+      { outFrom: ['GRU', 'GIG', 'VCP'], outTo: ['LHR', 'LGW'], inFrom: ['BCN'], inTo: ['GRU', 'GIG', 'VCP'], reversed: true },
+    ]);
+  });
+
+  it('com allowSameEntryExit também aceita entrar e sair pela mesma cidade', () => {
+    const [variant, ...rest] = buildVariants(eurotrip({ allowSameEntryExit: true }));
+    expect(rest).toHaveLength(0);
+    expect(variant?.outTo).toEqual(['BCN', 'LHR', 'LGW']);
+    expect(variant?.inFrom).toEqual(['BCN', 'LHR', 'LGW']);
+  });
+
+  it('busca aberta sem returnFromAirport: mesmos destinos na entrada e na saída', () => {
+    const r = route({ fromAirport: ['GRU', 'GIG'], toAirport: ['BCN', 'MAD'], returnFromAirport: undefined });
+    expect(buildVariants(r)).toEqual([
+      { outFrom: ['GRU', 'GIG'], outTo: ['BCN', 'MAD'], inFrom: ['BCN', 'MAD'], inTo: ['GRU', 'GIG'], reversed: false },
+    ]);
+  });
+
+  it('escolhe a combinação mais barata entre origens e destinos diferentes (sai de GRU, volta para GIG)', () => {
+    const plan = buildMultiDestinationPlan(eurotrip({ ticketMode: 'separate' }), '2027-01-01', 100);
+    const dates = { departureDate: '2027-08-01', returnDate: '2027-08-15' };
+    const legs = new Map<string, FlightOffer>();
+    for (const leg of plan.legs) legs.set(legKey(leg), oneWay(leg.from, leg.to, leg.date, 4000));
+    legs.set(legKey({ from: 'GRU', to: 'BCN', date: dates.departureDate }), oneWay('GRU', 'BCN', dates.departureDate, 2500));
+    legs.set(legKey({ from: 'LGW', to: 'GIG', date: dates.returnDate }), oneWay('LGW', 'GIG', dates.returnDate, 1900));
+    expect(pickBest(plan, dates, legs, new Map())).toMatchObject({
+      from: 'GRU', to: 'BCN', returnFrom: 'LGW', returnTo: 'GIG', offer: { price: 4400 },
+    });
   });
 });
 

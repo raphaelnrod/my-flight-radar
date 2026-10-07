@@ -63,16 +63,22 @@ export const ticketKey = (t: TicketSearch): string =>
 const pairKey = (p: SearchDates): string => `${p.departureDate}|${p.returnDate ?? ''}`;
 
 export function buildVariants(route: RouteConfig): Variant[] {
-  const outFrom = expandAirports([route.fromAirport]);
-  const outTo = expandAirports([route.toAirport]);
-  const inFrom = expandAirports(route.returnFromAirport ?? [route.toAirport]);
-  const inTo = expandAirports([route.returnToAirport ?? route.fromAirport]);
+  const outFrom = expandAirports(route.fromAirport);
+  const entry = expandAirports(route.toAirport);
+  const exit = expandAirports(route.returnFromAirport ?? route.toAirport);
+  const inTo = expandAirports(route.returnToAirport ?? route.fromAirport);
 
-  const variants: Variant[] = [{ outFrom, outTo, inFrom, inTo, reversed: false }];
-  const sameDestinations = outTo.length === inFrom.length && outTo.every((code) => inFrom.includes(code));
-  if (route.includeReverse && !sameDestinations) {
-    variants.push({ outFrom, outTo: inFrom, inFrom: outTo, inTo, reversed: true });
+  const sameSets = entry.length === exit.length && entry.every((code) => exit.includes(code));
+  if (sameSets) return [{ outFrom, outTo: entry, inFrom: exit, inTo, reversed: false }];
+
+  // Busca aberta: qualquer cidade de destino na entrada e na saída, inclusive a mesma.
+  if (route.allowSameEntryExit) {
+    const all = expandAirports([...entry, ...exit]);
+    return [{ outFrom, outTo: all, inFrom: all, inTo, reversed: false }];
   }
+
+  const variants: Variant[] = [{ outFrom, outTo: entry, inFrom: exit, inTo, reversed: false }];
+  if (route.includeReverse) variants.push({ outFrom, outTo: exit, inFrom: entry, inTo, reversed: true });
   return variants;
 }
 
@@ -111,31 +117,39 @@ function ticketsFor(dates: Required<SearchDates>[], variants: Variant[]): Ticket
   return [...tickets.values()];
 }
 
-/** Maior amostra uniforme de pares de datas cujo número de buscas cabe no orçamento (mínimo 1 par). */
+/**
+ * Maior amostra uniforme de pares de datas cujo número de buscas cabe no orçamento.
+ * Com `atLeastOne`, garante ao menos um par mesmo que ultrapasse o orçamento.
+ */
 function fitBudget<T>(
   pairs: Required<SearchDates>[],
   budget: number,
   searchesFor: (dates: Required<SearchDates>[]) => T[],
+  atLeastOne: boolean,
 ): T[] {
   if (budget <= 0 || pairs.length === 0) return [];
-  for (let k = pairs.length; k > 1; k--) {
+  for (let k = pairs.length; k >= 1; k--) {
     const searches = searchesFor(sample(pairs, k));
     if (searches.length <= budget) return searches;
   }
-  return searchesFor(sample(pairs, 1));
+  return atLeastOne ? searchesFor(sample(pairs, 1)) : [];
 }
 
-/** Divide o orçamento de buscas entre as estratégias e escolhe o que pesquisar neste ciclo. */
+/**
+ * Escolhe o que pesquisar neste ciclo. No modo `both`, os trechos só ida têm prioridade (cobrem
+ * todas as combinações de datas com poucas buscas) e o que sobrar do limite vai para os bilhetes
+ * multidestinos.
+ */
 export function buildMultiDestinationPlan(route: RouteConfig, today: string, maxSearches: number): MultiDestinationPlan {
   const variants = buildVariants(route);
   const allPairs = datePairs(route, today);
 
-  const separateBudget =
-    route.ticketMode === 'separate' ? maxSearches : route.ticketMode === 'single' ? 0 : Math.ceil(maxSearches / 2);
-  const singleBudget = maxSearches - separateBudget;
-
-  const legs = fitBudget(allPairs, separateBudget, (dates) => legsFor(dates, variants));
-  const tickets = fitBudget(allPairs, singleBudget, (dates) => ticketsFor(dates, variants));
+  const legs =
+    route.ticketMode === 'single' ? [] : fitBudget(allPairs, maxSearches, (dates) => legsFor(dates, variants), true);
+  const tickets =
+    route.ticketMode === 'separate'
+      ? []
+      : fitBudget(allPairs, maxSearches - legs.length, (dates) => ticketsFor(dates, variants), route.ticketMode === 'single');
 
   // Com os trechos só ida pesquisados, qualquer combinação válida entre eles pode ser avaliada.
   const legDates = new Set(legs.map((l) => l.date));

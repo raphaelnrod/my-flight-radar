@@ -31,7 +31,7 @@ npm run build && npm start    # modo agendado
 | campo | descrição |
 |---|---|
 | `id` | identificador único |
-| `fromAirport` / `toAirport` | IATA de aeroporto ou cidade (`GRU`, `CGH`, `SAO`, `BCN`, `MAD`) |
+| `fromAirport` / `toAirport` | IATA de aeroporto ou cidade (`GRU`, `SAO`, `BCN`) ou lista (`["GRU", "GIG", "VCP"]`) |
 | `targetAirlines` | companhias permitidas (padrão `["LA"]`). Uma oferta só é aceita se **todos** os trechos forem dessas companhias; `[]` = qualquer |
 | `departureDateRange` | `{ "from", "to", "stepDays"? }` ou lista `["2026-10-15", ...]` |
 | `returnDateRange` | idem, opcional (omitido = só ida) |
@@ -40,46 +40,56 @@ npm run build && npm start    # modo agendado
 | `active` | liga/desliga a rota |
 | `maxSearches` | opcional; sobrescreve `MAX_SEARCHES_PER_ROUTE` só para esta rota |
 | `returnFromAirport` | opcional; origem da volta, se diferente do destino da ida: `"LHR"`, `["LHR", "LGW"]` ou cidade `"LON"` |
-| `returnToAirport` | opcional; destino da volta, se diferente de `fromAirport` |
+| `returnToAirport` | opcional; destino(s) da volta. Padrão = os mesmos de `fromAirport` (volta para qualquer um deles) |
 | `includeReverse` | `true` = também pesquisa a rota invertida (ver abaixo). Padrão `false` |
+| `allowSameEntryExit` | `true` = também aceita entrar e sair da viagem pela mesma cidade de destino. Padrão `false` |
 | `ticketMode` | `both` (padrão), `separate` (dois bilhetes só ida) ou `single` (um bilhete multidestinos) |
 
 Cada combinação ida×volta é uma busca; `MAX_SEARCHES_PER_ROUTE` (padrão 30) limita o total por ciclo
 (amostragem uniforme), e `REQUEST_DELAY_*` espaça as requisições.
 
-### Ida e volta por cidades diferentes (multidestinos)
+### Vários aeroportos e ida/volta por cidades diferentes (multidestinos)
 
-Sem `returnFromAirport`/`returnToAirport`, nada muda: ida e volta pela mesma rota. Com eles, por exemplo
-ida `GRU → BCN` e volta `LHR → GRU`:
+Com um único aeroporto de cada lado e sem `returnFromAirport`/`returnToAirport`, nada muda: ida e volta
+pela mesma rota. Com listas de aeroportos ou volta por outra cidade, a rota é pesquisada trecho a trecho e,
+para cada par de datas, vale a combinação mais barata. Exemplo de eurotrip, saindo de GRU, GIG ou VCP, entrando
+por Barcelona e saindo por Londres (ou o contrário) e voltando para qualquer um dos três:
 
 ```json
 {
-  "id": "europa-ago-2027",
-  "fromAirport": "GRU",
+  "id": "eurotrip-ago-2027",
+  "fromAirport": ["GRU", "GIG", "VCP"],
   "toAirport": "BCN",
   "returnFromAirport": ["LHR", "LGW"],
   "includeReverse": true,
+  "ticketMode": "separate",
   "targetAirlines": [],
   "departureDateRange": { "from": "2027-08-01", "to": "2027-08-05" },
   "returnDateRange": { "from": "2027-08-18", "to": "2027-08-22" },
   "minStayDays": 14,
   "maxStayDays": 20,
-  "maxSearches": 60,
+  "maxSearches": 90,
   "maxPrice": 6000
 }
 ```
 
-- **`includeReverse: true`** também pesquisa a rota invertida: ida `GRU → LHR/LGW` e volta `BCN → GRU`.
+- **Origem e volta no Brasil**: `fromAirport` aceita lista; a volta pode chegar em qualquer um deles
+  (ex.: sai de GRU e volta para GIG). Para restringir, informe `returnToAirport`.
+- **Entrada e saída do destino**: a ida chega em `toAirport` e a volta sai de `returnFromAirport`.
+  `includeReverse: true` também pesquisa o contrário (entra por LHR/LGW, sai por BCN).
+  Entrar e sair pela mesma cidade só é considerado com `allowSameEntryExit: true`
+  (ou quando `returnFromAirport` é omitido: busca aberta com os mesmos destinos na entrada e na saída).
 - **Duas estratégias de preço** (`ticketMode`):
   - `separate`: busca cada trecho como só ida e soma a ida mais barata com a volta mais barata (2 bilhetes).
-    Cada trecho é pesquisado uma vez por data, e depois todas as combinações de datas válidas são avaliadas.
-  - `single`: busca o bilhete multidestinos (um só bilhete com os dois trechos). Costuma ser mais barato em
-    voos internacionais longos, mas exige uma busca por par de datas × combinação de aeroportos.
-  - `both` (padrão): divide o limite de buscas entre as duas e fica com a mais barata.
-- Para cada par de datas (ida, volta), vale a opção mais barata entre todas as variantes, aeroportos e estratégias.
-  As regras de alerta, o cooldown e o histórico funcionam como nas outras rotas, por par de datas.
+    Cada trecho é pesquisado uma vez por data e todas as combinações de datas válidas são avaliadas.
+  - `single`: busca o bilhete multidestinos (um só bilhete com os dois trechos). Às vezes sai mais barato,
+    mas custa uma busca por par de datas × combinação de aeroportos (no exemplo acima, 36 por par de datas).
+  - `both` (padrão): os trechos só ida têm prioridade; o que sobrar de `maxSearches` vai para multidestinos.
+- As regras de alerta, o cooldown e o histórico funcionam como nas outras rotas, por par de datas.
 - Códigos de cidade (`LON`, `PAR`, `MIL`, `ROM`, `NYC`, `SAO`, `RIO`, `BUE`, …) viram um aeroporto cada,
-  e cada aeroporto é uma busca a mais. Listar só os aeroportos que interessam (`["LHR", "LGW"]`) economiza buscas.
+  e cada aeroporto é mais busca. Listar só os aeroportos que interessam economiza buscas.
+- Quantas buscas no exemplo: 9 trechos só ida por data (3 origens × 3 destinos de cada lado).
+  Com 5 datas de ida e 5 de volta, são 90 buscas para cobrir os 23 pares de datas válidos.
 - Ao converter uma rota existente para multidestinos, troque o `id` para não misturar o histórico de preços.
 
 ## Regras de alerta

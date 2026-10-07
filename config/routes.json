@@ -21,19 +21,19 @@
     "active": false
   },
   {
-    "id": "europa-ago-2027",
-    "fromAirport": "GRU",
+    "id": "eurotrip-ago-2027",
+    "fromAirport": ["GRU", "GIG", "VCP"],
     "toAirport": "BCN",
     "returnFromAirport": ["LHR", "LGW"],
-    "returnToAirport": "GRU",
     "includeReverse": true,
-    "ticketMode": "both",
+    "allowSameEntryExit": false,
+    "ticketMode": "separate",
     "targetAirlines": [],
     "departureDateRange": { "from": "2027-08-01", "to": "2027-08-05" },
     "returnDateRange": { "from": "2027-08-18", "to": "2027-08-22" },
     "minStayDays": 14,
     "maxStayDays": 20,
-    "maxSearches": 60,
+    "maxSearches": 90,
     "maxPrice": 6000,
     "active": false
   }
